@@ -30,8 +30,13 @@ if (!fs.existsSync(publicDir)) {
   fs.mkdirSync(publicDir, { recursive: true });
 }
 
-app.use(cors());
+
 app.use(express.json());
+
+app.use(cors({
+  origin: ['https://your-frontend.vercel.app'], // add your frontend domain
+  credentials: true
+}));
 
 // Serve static files from both directories
 app.use("/uploads", express.static(path.join(__dirname, "uploads")));
