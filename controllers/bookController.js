@@ -1,14 +1,17 @@
+// controllers/bookController.js
 import Book from "../models/bookModel.js";
-import fs from 'fs';
+import fs from 'fs/promises';
 import path from 'path';
 import asyncHandler from 'express-async-handler';
 
 // Helper to delete old image file
-const deleteOldImage = (imagePath) => {
+const deleteOldImage = async (imagePath) => {
   if (imagePath && !imagePath.startsWith('http')) {
-    const fullPath = path.join(process.cwd(), 'public', imagePath);
-    if (fs.existsSync(fullPath)) {
-      fs.unlinkSync(fullPath);
+    try {
+      const fullPath = path.join(process.cwd(), imagePath);
+      await fs.unlink(fullPath);
+    } catch (err) {
+      console.error('Error deleting image file:', err.message);
     }
   }
 };
@@ -41,14 +44,14 @@ export const getNewReleases = asyncHandler(async (req, res) => {
   thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
 
   const books = await Book.find({
-    releaseDate: { $gte: thirtyDaysAgo },
+    createdAt: { $gte: thirtyDaysAgo },
     isPublished: true
-  }).sort({ releaseDate: -1 }).limit(20);
+  }).sort({ createdAt: -1 }).limit(20);
 
   res.json(books);
 });
 
-// @desc    Get best sellers (based on sales data)
+// @desc    Get best sellers (based on salesCount)
 // @route   GET /api/books/best-sellers
 // @access  Public
 export const getBestSellers = asyncHandler(async (req, res) => {
@@ -67,18 +70,20 @@ export const createBook = asyncHandler(async (req, res) => {
 
   if (!req.file) {
     res.status(400);
-    throw new Error('No image file uploaded');
+    throw new Error('Please upload an image file');
   }
 
+  const imagePath = `/uploads/books/${req.file.filename}`;
+
   const book = new Book({
+    user: req.user._id,
     title,
     author,
     description,
     price: Number(price),
     countInStock: Number(countInStock),
-    image: `/uploads/${req.file.filename}`,
-    category,
-    user: req.user._id,
+    image: imagePath,
+    category
   });
 
   const createdBook = await book.save();
@@ -95,10 +100,8 @@ export const updateBook = asyncHandler(async (req, res) => {
     throw new Error('Book not found');
   }
 
-  // Store old image path for cleanup
   const oldImage = book.image;
 
-  // Update fields
   book.title = req.body.title || book.title;
   book.author = req.body.author || book.author;
   book.description = req.body.description || book.description;
@@ -106,11 +109,9 @@ export const updateBook = asyncHandler(async (req, res) => {
   book.countInStock = Number(req.body.countInStock) || book.countInStock;
   book.category = req.body.category || book.category;
 
-  // Update image if new file uploaded
   if (req.file) {
-    book.image = `/uploads/${req.file.filename}`;
-    // Delete old image file
-    deleteOldImage(oldImage);
+    book.image = `/uploads/books/${req.file.filename}`;
+    await deleteOldImage(oldImage);
   }
 
   const updatedBook = await book.save();
@@ -127,14 +128,8 @@ export const deleteBook = asyncHandler(async (req, res) => {
     throw new Error('Book not found');
   }
 
-  // Delete associated image file
-  try {
-    deleteOldImage(book.image);
-  } catch (err) {
-    console.error('Failed to delete image file:', err.message);
-    // Don't throw, just log
-  }
+  await deleteOldImage(book.image);
+  await Book.deleteOne({ _id: book._id });
 
-  await Book.deleteOne({ _id: book._id }); // Use deleteOne instead of remove
-  res.json({ message: 'Book deleted successfully' });
+  res.json({ message: 'Book removed' });
 });
